@@ -63,7 +63,7 @@ initial_barplot <- data %>%
   ggplot(aes(x=Platform, y=number, fill = Platform)) + # Then plot it
   geom_bar(width = 1, stat = "identity") +
   labs(title = "Number of Games Released by Console", x = "Platform", y = "Number of Games") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + # Rotate the x-axis labels to make them easier to read
+  theme(legend.position='none', axis.text.x = element_text(angle = 90, vjust = 0.5)) + # Rotate the x-axis labels to make them easier to read
   geom_text(aes(label=number), vjust=1.6, color="black", size=3.5) # Add labels to the bars indicating number of games
 
 initial_barplot
@@ -90,7 +90,8 @@ barplot2000 <- data2000 %>%
   ggplot(aes(x=Platform, y=number, fill = Platform)) +
   geom_bar(width = 1, stat = "identity") +
   labs(title = "Number of Games Released by Console Since 2000", x = "Platform", y = "Number of Games") +
-  geom_text(aes(label=number), vjust=1.6, color="black", size=3.5) # Add labels to the bars indicating number of games
+  geom_text(aes(label=number), vjust=1.6, color="black", size=3.5) # Add labels to the bars indicating number of games +
+  theme(legend.position='none') # We don't need a legend
 
 barplot2000
 ```
