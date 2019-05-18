@@ -94,6 +94,7 @@ barplot2000 <- data2000 %>%
 
 barplot2000
 ```
+
 This graph is much easier to handle and visualize, as there are far fewer consoles being shown. Only major consoles are left, which will benefit our analysis as there will be less outlier data involved that could impact our results.
 
 There is some missing data that will affect our analysis. Let's see some of that missing data.
@@ -382,8 +383,12 @@ Developers and publishers can benefit from this kind of analysis by looking clos
 We used a lot of R libraries, so we'll link some of their documentation as well as some other outside libraries for further reading:
 
 https://www.tidyverse.org/ - All about Tidyverse!
+
 https://hafen.github.io/rbokeh/ - Read more about the rbokeh plotting library here
+
 https://cran.r-project.org/web/packages/ggrepel/vignettes/ggrepel.html - An alternative to rbokeh that we considered! ggrepel works alongside ggplot2.
+
 https://seananderson.ca/2013/10/19/reshape/ - All about reshape2
+
 https://www.rdocumentation.org/packages/broom/versions/0.4.4 - Broom
 
