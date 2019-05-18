@@ -1,0 +1,389 @@
+---
+title: "Analysing Video Game Sales Figures"
+author: "Joe Friel & Dylan Weaver"
+date: "5/15/2019"
+output: html_document
+---
+
+![](./banner.jpg)
+
+# Motivation
+The video game industry is huge, and filled with sensational headlines in the news, so it is often hard to get a good grasp of what's really going on. We want to get past the headlines and look at objective data in order to learn more about game sales and ratings.
+
+This data could also be useful for game companies and developers to see exactly what games sell well and on what consoles. Profits are surely what drive these companies, and this tutorial would help guide those kinds of decisions.
+
+Another motivation for this project is that we both enjoy video games and want to learn more about the data behind them.
+
+# Background on Data
+We came across a dataset on Kaggle [here](https://www.kaggle.com/rush4ratio/video-game-sales-with-ratings) that contains data from over 16,000 games. There are 11 attributes, including `Game Name`, `Platform`, `Critic_Score`, `User_Score`, and `Sales` for various regions as well as overall global sale figures.
+
+This data in this dataset contains video games released between 1980 and 2016. Both the critic and user scores were both taken directly from [Metacritic](https://www.metacritic.com/).
+
+# The Problem We're Answering
+For this project, We will be analyzing video games and their sales figures as well as ratings. The purpose of this project is to see the correlation, if any, between platform, genre, sales, and rating.
+
+Our null hypothesis is that there is no effect between any 3 of {platform, genre, sales} and rating.
+
+To do this, we're going to take our dataset and clean up anything that will affect our analysis. Next, we will  create a variety of visualizations to help better understand the trends that appear in the data. We will then use hypothesis testing to test the claims that we will make.
+
+# Loading Libraries
+Before we start loading and processing our data, we're going to load various libraries that will help us perform our analysis
+
+```{r load, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(reshape2) # To help us make cool plots :)
+library(rbokeh) # Instead of ggplot2
+library(broom) # To help us interpret the results of our linear models
+```
+
+# Data Collection
+We're going to start by simply loading the CSV file into a variable named `data`.
+
+```{r setup, message=FALSE, warning=FALSE}
+data <- read_csv("Video_Game_Sales.csv")
+```
+
+Now that we've loaded in the data, it's a good idea to take a loot at a sample of it to get an idea of what we will be working with.
+
+```{r data_view}
+# View a random selection of entities from out dataset
+data %>%
+  sample_n(10) %>% # Randomly select 10 entities
+  head() 
+```
+As you can see the entities are different video games each with their respective platform, release year, genre, publisher, developer, sales figures, and ratings. These attributes will allow us to perform comparisons about our data.
+
+# Exploratory Data Analysis
+Now that we know what our data looks like, we are going to vizualize it. We will begin by grouping our entities by console so we can see the breakdown of games by console.
+
+```{r pressure, echo=FALSE}
+initial_barplot <- data %>% 
+  group_by(Platform) %>% # Platform == console
+  summarise(number = n()) %>% # Get the number of games for each platform
+  ggplot(aes(x=Platform, y=number, fill = Platform)) + # Then plot it
+  geom_bar(width = 1, stat = "identity") +
+  labs(title = "Number of Games Released by Console", x = "Platform", y = "Number of Games") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + # Rotate the x-axis labels to make them easier to read
+  geom_text(aes(label=number), vjust=1.6, color="black", size=3.5) # Add labels to the bars indicating number of games
+
+initial_barplot
+```
+
+As is evident in the bar chart above, the data is numerous and will be hard to work with if we keep all of this data. Because of this, we are going to limit our analysis to only games since the year 2000. This is to reduce the number of consoles, games, and remove some outliers in our analysis. 
+
+```{r filter_year}
+# A subset of our original data containing data for games released in 2000 or after
+data2000 <- data %>%
+  filter(Year_of_Release >= 2000)
+```
+
+In today's video game scene there are 3 major console companies: Sony, Microsoft, and Nintendo, who produce the PlayStation consoles, the XBox consoles, and the Wii/Switch consoles respectively. By filtering the games using the year 2000 we can limit our analysis to these companies along with PC games.
+
+Because of how game releases work, we also had to deal with older consoles such as the PlayStation 1, Nintendo 64, Dreamcast, and Wonderswan (A Japanense handheld console) having very few games because of those that were made for the newer consoles and downported to the older consoles. Because of this we have decided to remove any console that had fewer than 100 games released after the year 2000.
+
+With these restrictions, let's view the same plot again:
+```{r filted_data_plot}
+barplot2000 <- data2000 %>% 
+  group_by(Platform) %>%
+  summarise(number = n()) %>%
+  filter(number >= 100) %>% # We only want platforms that have more than 100 games
+  ggplot(aes(x=Platform, y=number, fill = Platform)) +
+  geom_bar(width = 1, stat = "identity") +
+  labs(title = "Number of Games Released by Console Since 2000", x = "Platform", y = "Number of Games") +
+  geom_text(aes(label=number), vjust=1.6, color="black", size=3.5) # Add labels to the bars indicating number of games
+
+barplot2000
+```
+This graph is much easier to handle and visualize, as there are far fewer consoles being shown. Only major consoles are left, which will benefit our analysis as there will be less outlier data involved that could impact our results.
+
+There is some missing data that will affect our analysis. Let's see some of that missing data.
+
+```{r missing}
+data2000 %>%
+  filter(is.na(User_Score) | is.na(User_Count) | is.na(Critic_Score) | is.na(Critic_Count)) %>%
+  select(Name, Year_of_Release, Genre, User_Score, User_Count, Critic_Score, Critic_Count) %>%
+  sample_n(20)
+```
+
+It's clear that the missing data is not missing systematically, but rather, missing at random. We are going to impute the averages of `User_Score`, `User_Count`, `Critic_Score`, and `Critic_Count` when we tidy our data in the next section
+
+# Tidying Our Data
+There are some things about our data that will present troubles later during our analysis. We're going to fix them here so we don't need to interrupt our analysis.
+
+```{r tidying_data, warning=FALSE}
+# Firstly, some of our data has invalid attributes for our purposes. We simply filter that out
+data2000 <- data2000 %>%
+  filter(Year_of_Release != "N/A" | User_Score != "tbd")
+
+
+# Make User_Score numeric (it's currently a character column)
+data2000 <- data2000 %>%
+  mutate(User_Score = as.double(User_Score))
+
+# We multiply user score by 10 to fit in line with our critic scores
+# Currently, User_Score is out of 10, and Critic_Score is out of 100
+data2000 <- data2000 %>%
+  mutate(User_Score = User_Score * 10.0)
+
+# Next, we don't really care about the individual region sales, as there is a global sales attribute that we will use instead.
+data2000 <- data2000 %>%
+  subset(select = -c(NA_Sales, EU_Sales, JP_Sales, Other_Sales))
+
+# We're going to impute the data so that any randomly missing data is replaced by an estimate of that game's genre on its console for its release year
+# First we have to compute averages so that we have values to replace our missing data with
+dataAverages <- data2000 %>%
+  drop_na(Critic_Score) %>%
+  drop_na(User_Score) %>%
+  drop_na(Critic_Count) %>%
+  drop_na(User_Count) %>%
+  group_by(Genre, Platform, Year_of_Release) %>%
+  summarize(meanUserScore = mean(User_Score), 
+            meanUserCount = mean(User_Count), 
+            meanCriticScore = mean(Critic_Score), 
+            meanCriticCount = mean(Critic_Count))
+
+# Let's see some of the data
+dataAverages %>%
+  head()
+
+# Merge out two dataframes based on the following attributes
+data2000 <- data2000 %>%
+  merge(dataAverages, by=c("Genre", "Platform", "Year_of_Release"))
+
+# Here we are replacing any NA values with the average score for that game's genre on its platform for its year of release
+data2000 <- data2000 %>%
+   mutate(User_Score = ifelse(is.na(User_Score), meanUserScore, User_Score)) %>%
+   mutate(Critic_Score = ifelse(is.na(Critic_Score), meanCriticScore, Critic_Score))
+```
+
+With our tidying complete, let's once again look at a sample of the data.
+
+```{r tidied_data}
+data2000 %>%
+  sample_n(10)
+```
+
+Let's make some plots based on genre. We'll start by comparing user scores against critic scores, as people often disagree with critic's reviews of games.
+
+```{r genre_plots, warning=FALSE}
+# Transposes columns into rows allowing us to group by the kind of score we want to plot
+data2000.m <- data2000 %>%
+  melt(id.vars='Genre', measure.vars=c('User_Score', 'Critic_Score'))
+
+data2000.m %>%
+  ggplot(aes(x=Genre, y=as.numeric(value), fill = variable)) +
+  geom_boxplot() +
+  labs(title="Comparing User Scores and Critic Scores Against Game Genres", x="Game Genre", y="Game Score") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) # Rotate the x-axis labels to make them easier to read
+```
+
+The `Reshape2` library helped us accomplish this easily with its `melt` function, which allows us to group by the user_score or critic_score for each game. You can read more about it here: https://seananderson.ca/2013/10/19/reshape/.
+
+Looking at this plot, we can see that almost every genre of video games receives an average score of around 75. One interesting thing to note is that the worst `Critic_Score` in a particular genre are always higher than the worst `User_Score` in a genre.
+
+A few `Action` Games received very close to a perfect (100) critic score. Let's go ahead and look at what game that the top rated `Action` game is:
+
+```{r good_game}
+data2000 %>%
+  filter(Genre == 'Action') %>%
+  arrange(desc(Critic_Score)) %>%
+  head(1)
+```
+
+It's not too much of a surprise that the highest rated game by critics was Grand Theft Auto IV, which has an average critic score of 98/100 with 50 critics rating it. Looking at this entity, we can also see that it sold over 10.5 million units on the Playstation 3 alone. Let's look more closely at sales numbers for these games, as there's certainly some interesting things that we can explore with that.
+
+We're going to look at the top 25 games based on sales. To accomplish we're going to create a new dataframe, where we take every game and sum the sales across all platforms. This will be useful because a game like Grand Theft Auto v sold much differently across many platforms, all of which should be accounted for.
+
+```{r sales_df}
+# Get the total sum of sales for a game across all platforms
+# e.g. Grand Theft Auto V for {360, PS3, XBOne, PS4, PC}
+data_sales <- data2000 %>%
+  group_by(Name) %>%
+  summarize(total_sales = sum(Global_Sales))
+
+data_sales %>%
+  arrange(desc(total_sales)) %>%
+  head()
+```
+
+Now that we know what our data looks like, let's visualize the top 25 games by sales:
+
+```{r total_sales_plot}
+# Now let's look at a bar plot of the top 25 games as rated by critics:
+data_sales %>%
+  arrange(desc(total_sales)) %>%
+  slice(1:25) %>% # We only want the top 25 best selling games
+  ggplot(aes(x=reorder(Name,total_sales), y=total_sales, fill=Name)) +
+  geom_bar(stat='identity') +
+  labs(title="25 Top Selling Games since 2000", x="Game Title", y="Total Sales in Millions") +
+  coord_flip() + # Make it a horizontal bar plot!
+  theme(legend.position='none') # We don't need a legend, it would take up too much space
+```
+
+From the graph above, we see that `Wii Sports` is the best selling game since 2000 in our dataset. It sold over 80 million copies! The next best selling game is `Grand Theft Auto V`, which has just around 57 million copies sold. Why is `Wii Sports` such a top selling game? The answer is that it was bundled with every Wii console that sold. This isn't the case for many other games on this list, though it is the case with `Wii Sports Resort` and `Kinect Adventures`. 
+
+Let's do the same thing with critics ratings. We are going to look at the top 25 games (according to critics) since the year 2000. This will give us a good idea of what the best games really are, since there are over 15,000 games in this dataset.
+
+```{r rating_df}
+data_ratings <- data2000 %>%
+  filter(Critic_Count > 1) %>%
+  group_by(Name) %>%
+  summarize(avg_critic_rating = sum(Critic_Score)/n(), n = n())
+
+# Let's take a look at the data:
+data_ratings %>%
+  arrange(desc(avg_critic_rating)) %>%
+  slice(1:25) %>%
+  head()
+
+# Now let's look at a bar plot of the top 25 games as rated by critics:
+data_ratings %>%
+  arrange(desc(avg_critic_rating)) %>%
+  slice(1:25) %>%
+  ggplot(aes(x=reorder(Name,avg_critic_rating), y=avg_critic_rating, fill=Name)) +
+  geom_bar(stat='identity') +
+  labs(title="25 Top Rated Games since 2000", x="Game Title", y="Average Critic Score") +
+  coord_flip(ylim=c(75,100)) +
+  theme(legend.position='none')
+```
+
+As you can see, all of the top 25 best rated games by critics had a score over 90/100. This isn't too surprising, considering that these games are the best of the best. What's interesting to note is just how many `Zelda` and `Grand Theft Auto` games are in this dataset. It seems that some developers knew what worked for them before, and continued to meet customer expectation with these series of video games.
+
+Since we saw some variation in the games that appear in the top selling games of all time and the top rated games of all time, we will look at which games appear the highest in both sales and ratings. To do this we will assign a rank to each of the games based on their rating. We will do the same for the games based on their sales. We will then take the sum of their two ranks and sort them based on their combined ranks to determine which games are the highest rated and best selling.
+
+```{r ranking_games, warning=FALSE,error=FALSE}
+# Assigning a rank to the games based on their rating
+data_ratings <- data_ratings %>%
+  arrange(desc(avg_critic_rating)) %>%
+  mutate(Ratings_Rank = row_number())
+
+# Assigning a rank to the games based on their sales
+data_sales <- data_sales %>%
+  arrange(desc(total_sales)) %>%
+  mutate(Sales_Rank = row_number())
+
+# Taking the sum of the ranks and sorting accordingly
+data_rankings <- data_ratings %>%
+  merge(data_sales, by="Name") %>%
+  mutate(Combined_Rank = (Sales_Rank + Ratings_Rank)) %>%
+  arrange(Combined_Rank) %>%
+  mutate(Combined_Rank = row_number())
+
+# We only want to show the top 25, to ensure it's not too cluttered
+data_to_plot <- data_rankings %>%
+  slice(1:25)
+
+# Make the graph and display it
+figure(title = "Top 25 Games Based on Sales and Ratings", legend_location = NULL) %>%
+  ly_points(data = data_to_plot, x = total_sales, y = avg_critic_rating,
+            color = Name,
+            hover = c(Name, avg_critic_rating, total_sales)) %>%
+  x_axis(label = "Total Sales in Million of Units") %>%
+  y_axis(label = "Average Critic Rating")
+```
+
+One thing to note from this data is that games that sell well do not always rank very highly or vice versa. From this we can see that there is a continued trend for Grand Theft Auto games to sell very well and be rating very highly. These games have been coming out for more than a decade and have continued to produce astounding results and push large volumes of sales. 
+
+Overall, there's a lot that we can learn from these graphs and this analysis. We see that overall, critic scores and user scores generally match one another. It's often thought that they don't, but it seems that they only don't match in outlier cases, which is what gets sensationalized in the headlines. We see that most of the best games sold around or over 10 million units, which, assuming an average price of 60 dollars (which isn't entirely accurate) is 600 million dollars -- an insane amount of money.
+
+# Hypothesis Testing
+With our analysis out of the way, let's move on to some hypothesis testing.
+
+Let's begin hypothesis testing by looking at how or if total sales affects the average critic rating of a game.
+
+```{r, Sales_LM}
+LMS <- lm(avg_critic_rating~total_sales, data=data_rankings)
+
+LMS %>% 
+  tidy()
+```
+
+Looking at this linear model we can conclude that we should reject the null hypothesis that total sales has no effect on the average critic rating for a game. We do reject the null hypothesis because the p-value that we found is not less than .05 given a 95% confidence interval. This makes sense because the game industry is often fueled by hype. People want to justify their purchases so they buy games that have good reviews. Leading to a relationship between sales and ratings.
+
+We can create another linear model to see if there's a relationship between platforms and a games rating.
+
+```{r, Platform_LM}
+data2000 <- data2000 %>%
+  mutate(avg_Critic_Score = meanCriticScore)
+  
+LMP <- lm(avg_Critic_Score~Platform, data=data2000)
+
+LMP %>% 
+  tidy()
+```
+
+Looking at this linear model, we can reject the null hypothesis that `Platform` does not have an effect on a games rating.
+
+Now, let's look create a linear model showing if there is a relationship between genre and rating:
+
+```{r, Genre_LM}
+LMG <- lm(avg_Critic_Score~Genre, data=data2000)
+
+LMG %>% 
+  tidy()
+```
+
+Let's now look at how accurate our linear models' predictions were. We are going to use the `augment` function to get residual and fitted value data, and create a scatter plot to help visualize this. We will start with our model that looks at rating predicted by sales.
+
+```{r aug1}
+aug_LMS <- augment(LMS)
+
+aug_LMS %>%
+  ggplot(aes(x=factor(.fitted), y=.resid)) +
+  geom_point() +
+  ggtitle("Residuals vs. Fitted Data") +
+  xlab("Fitted") +
+  ylab("Residuals")
+```
+
+Looking at this plot, we can see that our residuals are mostly fitted around 0, indicating that our model represents our data well.
+
+Let's also compare the residuals and fitted values for the linear model that looks at rating predicted by platform:
+
+```{r aug2}
+aug_LMP <- augment(LMP) 
+
+aug_LMP %>%
+  ggplot(aes(x=factor(.fitted), y=.resid)) +
+    geom_point() +
+    ggtitle("Residuals vs. Fitted Data") +
+    xlab("Fitted") +
+    ylab("Residuals") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) # Rotate the x-axis labels to make them easier to read
+```
+
+This plot also shows that our model predicting rating by platform is accurate. We can say this because our residuals are centered at zero.
+
+Finally, let's look at the residuals versus fitted data for our model that looks at rating based on genre:
+
+```{r aug3}
+aug_LMG <- augment(LMG) 
+
+aug_LMG %>%
+  ggplot(aes(x=factor(.fitted), y=.resid)) +
+    geom_point() +
+    ggtitle("Residuals vs. Fitted Data") +
+    xlab("Fitted") +
+    ylab("Residuals") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) # Rotate the x-axis labels to make them easier to read
+```
+
+Once again, our residuals are centered at zero. This model appears to be better than our previous model, even! Once again, this plot shows that our model accurately predicts our data.
+
+# Conclusion
+
+This project helped us determine what drives ratings in games.
+
+Our null hypotheses of "sales have an effect on rating", "genre has an effect on rating", and "platform has an effect on rating" were all proven incorrect by the results shown above. By looking at our plot, we see that there is the strongest relationship between genre and ratings.
+
+Developers and publishers can benefit from this kind of analysis by looking closer at this data, thereby determining with better accuracy what games will be rated higher than others.
+
+# Resources 
+We used a lot of R libraries, so we'll link some of their documentation as well as some other outside libraries for further reading:
+
+https://www.tidyverse.org/ - All about Tidyverse!
+https://hafen.github.io/rbokeh/ - Read more about the rbokeh plotting library here
+https://cran.r-project.org/web/packages/ggrepel/vignettes/ggrepel.html - An alternative to rbokeh that we considered! ggrepel works alongside ggplot2.
+https://seananderson.ca/2013/10/19/reshape/ - All about reshape2
+https://www.rdocumentation.org/packages/broom/versions/0.4.4 - Broom
+

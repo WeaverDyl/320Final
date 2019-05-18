@@ -1,2 +1,3 @@
-# 320Final
-CMSC320 final project Spring 2019
+# CMSC320 Final Tutorial
+
+The final project for CMSC320, Spring 2019.
